@@ -61,7 +61,9 @@ export function codexServiceTier(
   return codexModelSupportsFast(modelWireId) ? "priority" : undefined;
 }
 
-export function codexModelSupportsFast(modelWireId: string | undefined): boolean {
+export function codexModelSupportsFast(
+  modelWireId: string | undefined,
+): boolean {
   return modelWireId === "gpt-5.5" || modelWireId === "gpt-5.4";
 }
 

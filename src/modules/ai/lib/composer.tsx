@@ -1,15 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useWhisperRecording } from "../hooks/useWhisperRecording";
 import { expandSnippetTokens, type Snippet } from "../lib/snippets";
 import { tryRunSlashCommand, type SlashCommandMeta } from "./slashCommands";
-import { getOrCreateChat, useChatStore } from "../store/chatStore";
+import { getChat, useChatStore } from "../store/chatStore";
 import { useCodexAuthStore } from "../store/codexAuthStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 import { currentWorkspaceEnv } from "@/modules/workspace";
@@ -142,9 +136,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
         next.push({
           id: sel.id,
           name:
-            sel.source === "editor"
-              ? "Editor selection"
-              : "Terminal selection",
+            sel.source === "editor" ? "Editor selection" : "Terminal selection",
           kind: "selection",
           mediaType: "text/plain",
           text: sel.text,
@@ -242,7 +234,11 @@ export function AiComposerProvider({ children }: ProviderProps) {
     let effectiveText = trimmed;
     let commandMarker: string | null = null;
     let commandSource = trimmed;
-    if (pickedCommands.length > 0 && !trimmed.startsWith("/") && !trimmed.startsWith("#")) {
+    if (
+      pickedCommands.length > 0 &&
+      !trimmed.startsWith("/") &&
+      !trimmed.startsWith("#")
+    ) {
       commandSource = `#${pickedCommands[0].name} ${trimmed}`.trim();
     }
     if (commandSource.startsWith("/") || commandSource.startsWith("#")) {
@@ -273,10 +269,8 @@ export function AiComposerProvider({ children }: ProviderProps) {
         (f) =>
           `<selection source="${f.source ?? "terminal"}">\n${f.text ?? ""}\n</selection>`,
       );
-    const { body: bodyAfterTokens, blocks: snippetBlocks } = expandSnippetTokens(
-      effectiveText,
-      useSnippetsStore.getState().snippets,
-    );
+    const { body: bodyAfterTokens, blocks: snippetBlocks } =
+      expandSnippetTokens(effectiveText, useSnippetsStore.getState().snippets);
     const seenHandles = new Set<string>();
     const allSnippetBlocks: string[] = [];
     for (const s of pickedSnippets) {
@@ -316,13 +310,16 @@ export function AiComposerProvider({ children }: ProviderProps) {
 
     if (!sessionId) return;
     if (!selectedModelHasAuth(selectedModelId, apiKeys, codexSignedIn)) return;
-    const chat = getOrCreateChat(sessionId);
-    void chat.sendMessage({ role: "user", parts } as Parameters<
-      typeof chat.sendMessage
-    >[0]);
     const store = useChatStore.getState();
     store.patchAgentMeta({ hitStepCap: false, compactionNotice: null });
     if (!store.mini.open) store.openMini();
+    void (async () => {
+      const { getOrCreateChat } = await import("../store/chatRuntime");
+      const chat = getOrCreateChat(sessionId);
+      void chat.sendMessage({ role: "user", parts } as Parameters<
+        typeof chat.sendMessage
+      >[0]);
+    })();
     setValue("");
     setFiles([]);
     setPickedSnippets([]);
@@ -333,7 +330,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
 
   const stop = () => {
     if (!sessionId) return;
-    void getOrCreateChat(sessionId).stop();
+    void getChat(sessionId)?.stop();
   };
 
   const canSend =

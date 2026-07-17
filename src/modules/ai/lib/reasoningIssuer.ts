@@ -96,9 +96,7 @@ function readResponsesIssuer(
   const terax = providerMetadata.terax;
   if (!isRecord(terax)) return null;
   const issuer = terax.responsesIssuer;
-  return issuer === "openai_api" || issuer === "codex_backend"
-    ? issuer
-    : null;
+  return issuer === "openai_api" || issuer === "codex_backend" ? issuer : null;
 }
 
 function isRecord(value: unknown): value is MetadataRecord {

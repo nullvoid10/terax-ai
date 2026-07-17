@@ -4,14 +4,13 @@ import {
   stepCountIs,
   streamText,
   type LanguageModel,
-  type ModelMessage,
   type UIMessage,
 } from "ai";
 import {
   DEFAULT_MODEL_ID,
   endpointIdFromCompatModel,
-  getModelWireId,
   getModelContextLimit,
+  getModelWireId,
   isCompatModelId,
   LMSTUDIO_DEFAULT_BASE_URL,
   MAX_AGENT_STEPS,
@@ -33,6 +32,7 @@ import {
   type CodexReasoning,
   type CodexSpeed,
 } from "./codexOptions";
+import { prepareAgentPrompt } from "./prompt";
 import { createProxyFetch } from "./proxyFetch";
 import {
   filterReasoningForIssuer,
@@ -145,8 +145,9 @@ export async function buildLanguageModel(
       break;
     }
     case "deepseek": {
-      const { createOpenAICompatible } =
-        await import("@ai-sdk/openai-compatible");
+      const { createOpenAICompatible } = await import(
+        "@ai-sdk/openai-compatible"
+      );
       built = createOpenAICompatible({
         name: "deepseek",
         baseURL: "https://api.deepseek.com",
@@ -155,8 +156,9 @@ export async function buildLanguageModel(
       break;
     }
     case "mistral": {
-      const { createOpenAICompatible } =
-        await import("@ai-sdk/openai-compatible");
+      const { createOpenAICompatible } = await import(
+        "@ai-sdk/openai-compatible"
+      );
       built = createOpenAICompatible({
         name: "mistral",
         baseURL: "https://api.mistral.ai/v1",
@@ -170,8 +172,9 @@ export async function buildLanguageModel(
       break;
     }
     case "openrouter": {
-      const { createOpenAICompatible } =
-        await import("@ai-sdk/openai-compatible");
+      const { createOpenAICompatible } = await import(
+        "@ai-sdk/openai-compatible"
+      );
       built = createOpenAICompatible({
         name: "openrouter",
         baseURL: "https://openrouter.ai/api/v1",
@@ -189,8 +192,9 @@ export async function buildLanguageModel(
           "OpenAI-compatible provider has no base URL. Set it in Settings → Models.",
         );
       }
-      const { createOpenAICompatible } =
-        await import("@ai-sdk/openai-compatible");
+      const { createOpenAICompatible } = await import(
+        "@ai-sdk/openai-compatible"
+      );
       built = createOpenAICompatible({
         name: "openai-compatible",
         baseURL: compatURL,
@@ -200,8 +204,9 @@ export async function buildLanguageModel(
       break;
     }
     case "lmstudio": {
-      const { createOpenAICompatible } =
-        await import("@ai-sdk/openai-compatible");
+      const { createOpenAICompatible } = await import(
+        "@ai-sdk/openai-compatible"
+      );
       built = createOpenAICompatible({
         name: "lmstudio",
         baseURL: lmstudioURL,
@@ -210,8 +215,9 @@ export async function buildLanguageModel(
       break;
     }
     case "mlx": {
-      const { createOpenAICompatible } =
-        await import("@ai-sdk/openai-compatible");
+      const { createOpenAICompatible } = await import(
+        "@ai-sdk/openai-compatible"
+      );
       built = createOpenAICompatible({
         name: "mlx",
         baseURL: mlxURL,
@@ -220,8 +226,9 @@ export async function buildLanguageModel(
       break;
     }
     case "ollama": {
-      const { createOpenAICompatible } =
-        await import("@ai-sdk/openai-compatible");
+      const { createOpenAICompatible } = await import(
+        "@ai-sdk/openai-compatible"
+      );
       built = createOpenAICompatible({
         name: "ollama",
         baseURL: ollamaURL,
@@ -262,9 +269,7 @@ export function buildConfiguredLanguageModel(
     const ep = local.customEndpoints?.find((e) => e.id === eid);
     if (!ep) throw new Error(`Custom endpoint not found: ${eid}`);
     if (!ep.modelId.trim()) {
-      throw new Error(
-        `${ep.name}: no model id set. Open Settings → Models.`,
-      );
+      throw new Error(`${ep.name}: no model id set. Open Settings → Models.`);
     }
     return buildLanguageModel(
       "openai-compatible",
@@ -307,7 +312,7 @@ export function buildConfiguredLanguageModel(
   } else if (m.id === "openrouter-custom") {
     if (!local.openrouterModelId?.trim()) {
       throw new Error(
-        "OpenRouter: no model id set. Open Settings → Models and enter an OpenRouter model id (e.g. anthropic/claude-sonnet-4-6).",
+        "OpenRouter: no model id set. Open Settings → Models and enter an OpenRouter model id (e.g. anthropic/claude-sonnet-5).",
       );
     }
     resolvedId = local.openrouterModelId.trim();
@@ -341,28 +346,6 @@ function buildStableSystem(
       ? `\n\n## PROJECT — TERAX.md\n${projectMemory.trim()}`
       : "";
   return `${base}${memoryBlock}${personaBlock}${customBlock}`;
-}
-
-// OpenAI / Gemini / DeepSeek apply prefix caching automatically; only
-// Anthropic needs explicit breakpoints. Mark the stable system prefix and
-// the rotating conversation tail.
-function applyCacheBreakpoints(
-  messages: ModelMessage[],
-  provider: ProviderId,
-): ModelMessage[] {
-  if (provider !== "anthropic" || messages.length === 0) return messages;
-  const marker = {
-    anthropic: { cacheControl: { type: "ephemeral" as const } },
-  };
-  const withMarker = (m: ModelMessage): ModelMessage => ({
-    ...m,
-    providerOptions: { ...(m.providerOptions ?? {}), ...marker },
-  });
-  const out = messages.slice();
-  out[0] = withMarker(out[0]);
-  const lastIdx = out.length - 1;
-  if (lastIdx > 0) out[lastIdx] = withMarker(out[lastIdx]);
-  return out;
 }
 
 export type AgentUsage = {
@@ -462,19 +445,15 @@ export async function runAgentStream(opts: RunAgentOptions) {
     opts.onCompact?.({ droppedCount: compact.droppedCount });
   }
 
+  const prompt = prepareAgentPrompt(
+    stableSystem,
+    opts.planMode ? PLAN_MODE_PROMPT : null,
+    compactedHistory,
+    provider,
+  );
   const codexInstructions = opts.planMode
     ? `${stableSystem}\n\n${PLAN_MODE_PROMPT}`
     : stableSystem;
-  const messages: ModelMessage[] =
-    provider === "openai-codex"
-      ? []
-      : [{ role: "system", content: stableSystem }];
-  if (opts.planMode && provider !== "openai-codex") {
-    messages.push({ role: "system", content: PLAN_MODE_PROMPT });
-  }
-  messages.push(...compactedHistory);
-
-  const finalMessages = applyCacheBreakpoints(messages, provider);
   const providerOptions = buildProviderOptions(
     provider,
     getModelWireId(info),
@@ -486,7 +465,9 @@ export async function runAgentStream(opts: RunAgentOptions) {
   let stepsSeen = 0;
   return streamText({
     model,
-    messages: finalMessages,
+    system: prompt.system,
+    messages: prompt.messages,
+    allowSystemInMessages: false,
     tools: buildTools(opts.toolContext),
     stopWhen: stepCountIs(MAX_AGENT_STEPS),
     abortSignal: opts.abortSignal,

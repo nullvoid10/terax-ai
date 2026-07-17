@@ -56,9 +56,7 @@ describe("Codex Responses model wiring", () => {
 
     expect(captured.current).toBeDefined();
     const request = captured.current as CapturedRequest;
-    expect(request.url).toBe(
-      "https://chatgpt.com/backend-api/codex/responses",
-    );
+    expect(request.url).toBe("https://chatgpt.com/backend-api/codex/responses");
     expect(request.body.stream).toBe(true);
     expect(request.body.store).toBe(false);
     expect(request.body.instructions).toBe("You are concise.");
